@@ -2,14 +2,17 @@ name: CI
 
 on: [push, pull_request]
 
+permissions:
+  contents: read
+
 jobs:
   checkers:
     name: Run static checkers
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@9bb56186c3b09b4f86b1c65136769dd318469633 # v4.1.2
+    - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
     - name: Run clang-format style check (.c and .h)
-      uses: jidicula/clang-format-action@f62da5e3d3a2d88ff364771d9d938773a618ab5e # v4.11.0
+      uses: jidicula/clang-format-action@c74383674bf5f7c69f60ce562019c1c94bc1421a # v4.13.0
 
   ubuntu:
     name: ${{ matrix.cmake-build-type }}-build [${{ matrix.compiler }}, cmake-${{ matrix.cmake-version }} sanitizer="${{ matrix.sanitizer }}"]
@@ -17,33 +20,39 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        compiler: [gcc-11, clang-12]
-        cmake-version: [3.19]
+        compiler: [gcc-13, clang-18]
+        cmake-version: [3.29.3]
         cmake-build-type: [Release, RelWithDebInfo]
         sanitizer: ["", thread, undefined, leak, address]
         include:
           - compiler: gcc-7
-            cmake-version: 3.14
+            cmake-version: 3.14.5
             cmake-build-type: Release
             sanitizer: ""
           - compiler: gcc-8
-            cmake-version: 3.15
+            cmake-version: 3.15.4
             cmake-build-type: Release
             sanitizer: ""
           - compiler: clang-7
-            cmake-version: 3.17
+            cmake-version: 3.17.3
             cmake-build-type: Release
             sanitizer: ""
           - compiler: clang-9
-            cmake-version: 3.18
+            cmake-version: 3.18.6
             cmake-build-type: Release
             sanitizer: ""
 
     steps:
-    - name: Prepare
+    - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
+    - name: Prepare build tools
+      uses: aminya/setup-cpp@290824452986e378826155f3379d31bce8753d76 # v0.37.0
+      with:
+        compiler: ${{ matrix.compiler }}
+        cmake: ${{ matrix.cmake-version }}
+    - name: Install cached APT packages
       uses: awalsh128/cache-apt-pkgs-action@a6c3917cc929dd0345bfb2d3feaf9101823370ad # v1.4.2
       with:
-        packages: libevent-dev libuv1-dev libev-dev libglib2.0-dev ${{ matrix.compiler }}
+        packages: libevent-dev libuv1-dev libev-dev libglib2.0-dev
         version: 1.0
     - name: Install hiredis
       env:
@@ -52,17 +61,10 @@ jobs:
         curl -L https://github.com/redis/hiredis/archive/v${VERSION}.tar.gz | tar -xz
         cmake -S hiredis-${VERSION} -B hiredis-build -DENABLE_SSL=ON
         sudo make -C hiredis-build install
-    - name: Setup cmake
-      uses: jwlawson/actions-setup-cmake@959f1116cf9f1ae42fff8ec1a4aaae6d4a0e348b # v2.0.1
-      with:
-        cmake-version: ${{ matrix.cmake-version }}
-    - uses: actions/checkout@9bb56186c3b09b4f86b1c65136769dd318469633 # v4.1.2
     - name: Create build folder
       run: cmake -E make_directory build
     - name: Generate makefiles
       shell: bash
-      env:
-        CC: ${{ matrix.compiler }}
       working-directory: build
       run: cmake $GITHUB_WORKSPACE -DCMAKE_BUILD_TYPE=$BUILD_TYPE -DENABLE_SSL=ON -DENABLE_IPV6_TESTS=ON -DDOWNLOAD_HIREDIS=OFF -DUSE_SANITIZER=${{ matrix.sanitizer }} ..
     - name: Build
@@ -90,6 +92,9 @@ jobs:
       env:
         CC: ${{ matrix.compiler }}
       run: |
+        # Unset env. variables set by action 'aminya/setup-cpp'
+        # since they affects library installation and linkage.
+        unset LDFLAGS LIBRARY_PATH
         examples/using_cmake_externalproject/build.sh
         examples/using_cmake_separate/build.sh
         examples/using_cmake_and_make_mixed/build.sh
@@ -102,7 +107,7 @@ jobs:
       - name: Prepare
         run: |
           brew install cmake ninja openssl
-      - uses: actions/checkout@9bb56186c3b09b4f86b1c65136769dd318469633 # v4.1.2
+      - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
       - name: Build
         run: |
           mkdir build && cd build
@@ -113,12 +118,12 @@ jobs:
     name: Windows
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@9bb56186c3b09b4f86b1c65136769dd318469633 # v4.1.2
+      - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
       - uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0
       - name: Prepare
         run: |
           choco install -y ninja
-          vcpkg install --triplet x64-windows libevent
+          vcpkg install --triplet x64-windows pkgconf libevent
       - name: Build
         run: |
           mkdir build && cd build
@@ -129,9 +134,9 @@ jobs:
     name: Windows (MinGW64)
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@9bb56186c3b09b4f86b1c65136769dd318469633 # v4.1.2
+      - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
       - name: Set up MinGW
-        uses: msys2/setup-msys2@cc11e9188b693c2b100158c3322424c4cc1dadea # v2.22.0
+        uses: msys2/setup-msys2@d0e80f58dffbc64f6a3a1f43527d469b4fc7b6c8 # v2.23.0
         with:
           msystem: mingw64
           install: |
